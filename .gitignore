@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+conda-meta/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Data files
+*.ply
+*.zdf
+*.ndf
+*.npy
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# Images (large files)
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.tif
+*.bmp
+
+# Model files
+*.pt
+*.pth
+*.ckpt
+*.h5
+*.pb
+*.onnx
+*.tflite
+
+# Logs
+*.log
+logs/
+runs/
+tensorboard_logs/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Project specific
+preprocessing/__pycache__/
+preprocessing/organized_data/
+preprocessing/*.ply
+preprocessing/*.png
+preprocessing/*.npy
+
+# Config (if contains sensitive info)
+# config.json
+

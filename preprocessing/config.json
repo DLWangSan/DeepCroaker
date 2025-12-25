@@ -1,0 +1,18 @@
+{
+  "paths": {
+    "source_dir": "G:\\大黄鱼结构光\\大黄鱼结构光",
+    "organized_dir": "G:\\dhy_data\\organized_data",
+    "dataset_dir": "G:\\dhy_data",
+    "b_class_dir": "E:\\ECSF\\dahuangyu\\code\\datasets"
+  },
+  "processing": {
+    "output_size": [256, 256],
+    "exclude_folders": ["盲样"]
+  },
+  "yolo": {
+    "model_path": "E:\\ECSF\\dahuangyu\\code\\runs\\segment\\train4\\weights\\best.pt",
+    "conf_thres": 0.5
+  }
+}
+
+
