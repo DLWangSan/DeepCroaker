@@ -1,5 +1,17 @@
 """
-Process B-class data (action camera data): generate masks using YOLO and resize to 256x256
+Process B-class data (action camera data): generate masks using YOLO, crop based on mask bounding box, and resize to 256x256.
+
+Processing steps:
+1. Generate mask (fish body only) using YOLO segmentation model.
+2. Calculate bounding box from mask (with 10% expansion margin).
+3. Crop RGB and mask based on bounding box.
+4. Resize to 256x256 and save.
+
+Output files:
+- rgb.png: RGB image (256x256)
+- mask.png: Mask (256x256, 0/255)
+
+Note: B-class data does not have depth information.
 """
 import numpy as np
 import cv2
@@ -12,8 +24,9 @@ import torch
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
 def load_config():
+    """Loads configuration from config.json."""
     if not CONFIG_FILE.exists():
-        raise FileNotFoundError(f"配置文件不存在: {CONFIG_FILE}")
+        raise FileNotFoundError(f"Config file not found: {CONFIG_FILE}")
     
     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -25,9 +38,10 @@ DATASET_DIR = Path(config['paths']['dataset_dir'])
 OUTPUT_SIZE = tuple(config['processing']['output_size'])
 YOLO_MODEL_PATH = config.get('yolo', {}).get('model_path', r"E:\ECSF\dahuangyu\code\runs\segment\train4\weights\best.pt")
 YOLO_CONF_THRES = config.get('yolo', {}).get('conf_thres', 0.5)
+EXPAND_RATIO = 0.1  # 10% expansion margin for bounding box
 
 def load_yolo_model():
-    """Load YOLO segmentation model"""
+    """Loads the YOLO segmentation model."""
     try:
         from ultralytics import YOLO
         
@@ -36,20 +50,30 @@ def load_yolo_model():
         print(f"Device: {device.upper()}")
         if device == 'cuda':
             print(f"  GPU: {torch.cuda.get_device_name(0)}")
-            print(f"  CUDA version: {torch.version.cuda}")
+            print(f"  CUDA Version: {torch.version.cuda}")
         else:
-            print("  Warning: Using CPU, processing will be slow")
+            print("  Warning: Using CPU, processing will be slower.")
         
         model = YOLO(YOLO_MODEL_PATH)
-        print(f"YOLO model loaded successfully")
+        print(f"✓ YOLO model loaded successfully.")
         return model
     except ImportError:
-        raise ImportError("Please install ultralytics: pip install ultralytics")
+        raise ImportError("ultralytics not installed: pip install ultralytics")
     except Exception as e:
         raise RuntimeError(f"Failed to load YOLO model: {e}")
 
 def get_yolo_mask(rgb_image, yolo_model, conf_thres=0.5):
-    """Generate mask using YOLO model"""
+    """
+    Generates a mask on an RGB image using the YOLO model.
+    
+    Args:
+        rgb_image: RGB image (H, W, 3) in BGR format (OpenCV format).
+        yolo_model: YOLO model.
+        conf_thres: Confidence threshold.
+    
+    Returns:
+        mask: Binary mask (H, W) uint8, 255=foreground (fish), 0=background.
+    """
     results = yolo_model.predict(rgb_image, conf=conf_thres, verbose=False)
     result = results[0]
     
@@ -74,17 +98,62 @@ def get_yolo_mask(rgb_image, yolo_model, conf_thres=0.5):
     return np.zeros(rgb_image.shape[:2], dtype=np.uint8)
 
 def process_b_class_image(img_path, yolo_model, output_dir, sample_id):
-    """Process single B-class image"""
+    """
+    Processes a single B-class image.
+    
+    Processing steps:
+    1. Generate mask using YOLO.
+    2. Calculate bounding box from mask (with expansion margin).
+    3. Crop RGB and mask based on bounding box.
+    4. Resize to 256x256 and save.
+    
+    Args:
+        img_path: Image path.
+        yolo_model: YOLO model.
+        output_dir: Output directory.
+        sample_id: Sample ID.
+    
+    Returns:
+        dict: Processing result information.
+    """
     img = cv2.imread(str(img_path))
     if img is None:
         return None
     
     original_size = img.shape[:2]
+    
+    # Generate mask using YOLO
     mask = get_yolo_mask(img, yolo_model, conf_thres=YOLO_CONF_THRES)
     
-    img_resized = cv2.resize(img, OUTPUT_SIZE, interpolation=cv2.INTER_LINEAR)
-    mask_resized = cv2.resize(mask, OUTPUT_SIZE, interpolation=cv2.INTER_NEAREST)
+    # Calculate bounding box from mask (with expansion margin)
+    mask_binary = mask > 0
+    if mask_binary.sum() > 0:
+        coords = np.column_stack(np.where(mask_binary))
+        y_min, x_min = coords.min(axis=0)
+        y_max, x_max = coords.max(axis=0)
+        
+        H_img, W_img = img.shape[:2]
+        margin_y = int((y_max - y_min) * EXPAND_RATIO)
+        margin_x = int((x_max - x_min) * EXPAND_RATIO)
+        
+        y_min = max(0, y_min - margin_y)
+        y_max = min(H_img, y_max + margin_y)
+        x_min = max(0, x_min - margin_x)
+        x_max = min(W_img, x_max + margin_x)
+        
+        # Crop RGB and mask based on bounding box
+        img_cropped = img[y_min:y_max, x_min:x_max].copy()
+        mask_cropped = mask[y_min:y_max, x_min:x_max].copy()
+    else:
+        # If mask is empty, use full image
+        img_cropped = img
+        mask_cropped = mask
     
+    # Resize to output size
+    img_resized = cv2.resize(img_cropped, OUTPUT_SIZE, interpolation=cv2.INTER_LINEAR)
+    mask_resized = cv2.resize(mask_cropped, OUTPUT_SIZE, interpolation=cv2.INTER_NEAREST)
+    
+    # Save files
     output_dir.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(output_dir / "rgb.png"), img_resized)
     cv2.imwrite(str(output_dir / "mask.png"), mask_resized)
@@ -97,8 +166,9 @@ def process_b_class_image(img_path, yolo_model, output_dir, sample_id):
     }
 
 def main():
+    """Main function to process B-class data."""
     print("=" * 60)
-    print("Process B-class Data (Action Camera Data)")
+    print("Processing B-class Data (Action Camera Data)")
     print("=" * 60)
     
     if not B_CLASS_SOURCE_DIR.exists():
@@ -109,7 +179,7 @@ def main():
     try:
         yolo_model = load_yolo_model()
     except Exception as e:
-        print(f"Error: failed to load YOLO model: {e}")
+        print(f"Error: Could not load YOLO model: {e}")
         return
     
     b_class_dir = DATASET_DIR / "B_class"
@@ -126,7 +196,7 @@ def main():
         labels_dir = B_CLASS_SOURCE_DIR / split / "labels"
         
         if not images_dir.exists():
-            print(f"\nNote: {split}/images directory not found, skipping")
+            print(f"\nInfo: {split}/images directory not found, skipping.")
             continue
         
         image_files = []
@@ -134,10 +204,10 @@ def main():
             image_files.extend(images_dir.glob(f"*{ext}"))
         
         if not image_files:
-            print(f"\nNote: no image files found in {split}")
+            print(f"\nInfo: No image files found in {split}, skipping.")
             continue
         
-        print(f"\nProcessing {split} set: found {len(image_files)} image files")
+        print(f"\nProcessing {split} set: Found {len(image_files)} image files.")
         
         for img_file in tqdm(image_files, desc=f"Processing {split} data"):
             label = None
@@ -161,7 +231,7 @@ def main():
                             pass
             
             if label is None:
-                print(f"Warning: cannot determine label for {img_file.name}, skipping")
+                print(f"Warning: Could not determine label for {img_file.name}, skipping.")
                 continue
             
             sample_counter[label] += 1
@@ -181,23 +251,24 @@ def main():
                 total_processed += 1
     
     print(f"\n" + "=" * 60)
-    print(f"B-class data processing completed")
+    print(f"B-class Data Processing Complete")
     print("=" * 60)
     print(f"Total processed samples: {total_processed}")
     print(f"  Wild: {sum(1 for s in all_samples if s['label'] == 'wild')}")
     print(f"  Farmed: {sum(1 for s in all_samples if s['label'] == 'farmed')}")
     
     b_class_index_file = DATASET_DIR / "B_class_index.json"
+    
     b_class_index = {
         'wild': [s for s in all_samples if s['label'] == 'wild'],
         'farmed': [s for s in all_samples if s['label'] == 'farmed']
     }
-    
+
     with open(b_class_index_file, 'w', encoding='utf-8') as f:
         json.dump(b_class_index, f, indent=2, ensure_ascii=False)
     
     print(f"\nB-class data index saved: {b_class_index_file}")
-    print(f"Note: run 4_prepare_dataset.py to integrate B-class data into final dataset")
+    print(f"Hint: Run 4_prepare_dataset.py to integrate B-class data into the final dataset.")
 
 if __name__ == "__main__":
     main()
